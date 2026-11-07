@@ -1563,7 +1563,7 @@ function ComposerEditorTouchBar(props: { controller: ComposerEditorModel; docked
       class="flex shrink-0 items-center gap-1 bg-v2-background-bg-base"
       classList={{
         "mt-2 h-10 rounded-xl border border-v2-border-border-base px-1.5": !props.docked,
-        "box-content h-10 border-t border-v2-border-border-base px-2 pb-[var(--safe-area-inset-bottom,env(safe-area-inset-bottom,0px))]":
+        "box-content h-10 border-t border-v2-border-border-base px-2 pb-[var(--keyboard-toolbar-inset,var(--safe-area-inset-bottom,env(safe-area-inset-bottom,0px)))]":
           !!props.docked,
       }}
     >

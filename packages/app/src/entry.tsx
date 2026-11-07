@@ -52,8 +52,20 @@ const clearAuthToken = () => {
 // package.json carries the last stable version on every channel, so the server's build passes its own release.
 const web = createWebPlatform(import.meta.env.VITE_OPENCODE_VERSION ?? pkg.version)
 
+// The 36 MB precache buys offline use the LAN server does not need, and iOS
+// WebKit suspends or kills the worker — after which every fetch routed through
+// it fails with "Load failed" until the app is reinstalled. Run network-only:
+// drop any registration a previous build left behind.
 if (import.meta.env.PROD && "serviceWorker" in navigator) {
-  window.addEventListener("load", () => void navigator.serviceWorker.register("/sw.js"), { once: true })
+  window.addEventListener(
+    "load",
+    () => {
+      navigator.serviceWorker
+        .getRegistrations()
+        .then((registrations) => registrations.forEach((registration) => void registration.unregister()))
+    },
+    { once: true },
+  )
 }
 
 if (import.meta.env.VITE_SENTRY_DSN) {
