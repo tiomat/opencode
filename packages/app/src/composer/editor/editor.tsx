@@ -1562,8 +1562,8 @@ function ComposerEditorTouchBar(props: { controller: ComposerEditorModel; docked
       data-slot="composer-touch-bar"
       class="flex shrink-0 items-center gap-1 bg-v2-background-bg-base"
       classList={{
-        "mt-2 h-14 rounded-xl border border-v2-border-border-base px-1.5": !props.docked,
-        "box-content h-14 border-t border-v2-border-border-base px-2 pb-[var(--safe-area-inset-bottom,env(safe-area-inset-bottom,0px))]":
+        "mt-2 h-10 rounded-xl border border-v2-border-border-base px-1.5": !props.docked,
+        "box-content h-10 border-t border-v2-border-border-base px-2 pb-[var(--safe-area-inset-bottom,env(safe-area-inset-bottom,0px))]":
           !!props.docked,
       }}
     >
@@ -1573,7 +1573,7 @@ function ComposerEditorTouchBar(props: { controller: ComposerEditorModel; docked
           <Button
             data-action="composer-exit-shell"
             variant="ghost-muted"
-            class="h-11 rounded-lg px-3 text-[15px] leading-5"
+            class="h-8 rounded-lg px-2.5 text-[13px] leading-4"
             onMouseDown={keep}
             onClick={() => {
               props.controller.dispatch({ type: "mode.normal" })
@@ -1587,7 +1587,7 @@ function ComposerEditorTouchBar(props: { controller: ComposerEditorModel; docked
         <IconButton
           data-action="composer-attach-file"
           variant="ghost-muted"
-          class="size-11 rounded-lg"
+          class="size-8 rounded-lg"
           icon={<Icon name="plus" />}
           aria-label={i18n.t("ui.promptInput.add")}
           disabled={view.draftOnly}
@@ -1607,8 +1607,8 @@ function ComposerEditorTouchBar(props: { controller: ComposerEditorModel; docked
             <IconButton
               data-action={key.action}
               variant="ghost-muted"
-              class="size-11 rounded-lg"
-              icon={<span class="font-mono text-[17px] leading-5">{key.glyph}</span>}
+              class="size-8 rounded-lg"
+              icon={<span class="font-mono text-[15px] leading-4">{key.glyph}</span>}
               aria-label={i18n.t(key.label)}
               disabled={view.draftOnly}
               onMouseDown={keep}
@@ -1624,7 +1624,7 @@ function ComposerEditorTouchBar(props: { controller: ComposerEditorModel; docked
           <Button
             data-action="composer-submit"
             variant="neutral"
-            class="h-11 gap-2 rounded-xl px-4 text-[15px] leading-5"
+            class="h-8 gap-1.5 rounded-xl px-3 text-[13px] leading-4"
             onMouseDown={keep}
             onClick={props.controller.stop}
           >
@@ -1638,7 +1638,7 @@ function ComposerEditorTouchBar(props: { controller: ComposerEditorModel; docked
             <Button
               data-action="composer-alternate-delivery"
               variant="neutral"
-              class="h-11 rounded-xl px-4 text-[15px] leading-5"
+              class="h-8 rounded-xl px-3 text-[13px] leading-4"
               onMouseDown={keep}
               onClick={() => props.controller.submit({ alternate: true })}
             >
@@ -1649,7 +1649,7 @@ function ComposerEditorTouchBar(props: { controller: ComposerEditorModel; docked
         <Button
           data-action="composer-submit"
           variant="submit"
-          class="h-11 gap-1.5 rounded-xl px-4 text-[15px] leading-5"
+          class="h-8 gap-1 rounded-xl px-3 text-[13px] leading-4"
           disabled={!props.controller.canSubmit()}
           aria-busy={busy()}
           onMouseDown={keep}
