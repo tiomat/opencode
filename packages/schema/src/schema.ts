@@ -3,6 +3,12 @@ import { DateTime, Option, Schema, SchemaGetter } from "effect"
 export const PositiveInt = Schema.Int.check(Schema.isGreaterThan(0))
 export const NonNegativeInt = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))
 
+// Some providers (Alibaba DashScope) constrain generation by JSON Schema `pattern`
+// with full-match semantics, so a bare prefix pattern like "^ses" forces the value
+// to end right after the prefix. A template literal emits the anchored pattern
+// "^ses[\s\S]*?$", equivalent to a prefix check under both readings.
+export const startingWith = (prefix: string) => Schema.TemplateLiteral([prefix, Schema.String])
+
 export const RelativePath = Schema.String.pipe(
   Schema.brand("RelativePath"),
   Schema.annotate({ identifier: "RelativePath" }),

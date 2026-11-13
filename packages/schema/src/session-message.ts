@@ -1,7 +1,7 @@
 export * as SessionMessage from "./session-message.js"
 
 import { Schema } from "effect"
-import { optional } from "./schema.js"
+import { startingWith, optional } from "./schema.js"
 import { Content } from "./tool.js"
 import { Location } from "./location.js"
 import { Model } from "./model.js"
@@ -18,7 +18,7 @@ import { Money } from "./money.js"
 import { Snapshot } from "./snapshot.js"
 import { TokenUsage } from "./token-usage.js"
 
-export const ID = Schema.String.check(Schema.isStartingWith("msg_")).pipe(
+export const ID = startingWith("msg_").pipe(
   Schema.brand("Session.Message.ID"),
   Schema.annotate({ identifier: "Session.Message.ID" }),
   statics((schema) => ({

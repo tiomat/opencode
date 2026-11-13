@@ -3,9 +3,9 @@ export * as Form from "./form.js"
 import { Schema } from "effect"
 import { ephemeral, inventory } from "./event.js"
 import { ascending } from "./identifier.js"
-import { NonNegativeInt, optional, statics } from "./schema.js"
+import { NonNegativeInt, startingWith, optional, statics } from "./schema.js"
 
-const IDSchema = Schema.String.check(Schema.isStartingWith("frm_")).pipe(
+const IDSchema = startingWith("frm_").pipe(
   Schema.brand("Form.ID"),
   Schema.annotate({ identifier: "Form.ID" }),
 )

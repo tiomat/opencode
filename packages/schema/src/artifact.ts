@@ -3,10 +3,10 @@ export * as Artifact from "./artifact.js"
 import { Schema } from "effect"
 import { ephemeral, inventory } from "./event.js"
 import { ascending } from "./identifier.js"
-import { optional, statics } from "./schema.js"
+import { startingWith, optional, statics } from "./schema.js"
 import { SessionID } from "./session-id.js"
 
-export const ID = Schema.String.check(Schema.isStartingWith("art_")).pipe(
+export const ID = startingWith("art_").pipe(
   Schema.brand("Artifact.ID"),
   Schema.annotate({ identifier: "Artifact.ID" }),
   statics((schema) => ({

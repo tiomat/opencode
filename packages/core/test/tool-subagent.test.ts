@@ -697,7 +697,7 @@ describe("SubagentTool", () => {
             }),
           ).toMatchObject({
             status: "error",
-            error: { message: expect.stringContaining('sessionID: Expected a string starting with "ses"') },
+            error: { message: expect.stringContaining("sessionID: Expected a string matching template literal parts") },
           })
           expect(yield* call(parent.id, "call-parent-id")).toEqual({
             status: "error",
