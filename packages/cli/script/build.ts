@@ -25,6 +25,24 @@ const outdir = path.resolve(
 if (outdir === dir) throw new Error("--outdir must not be the package directory")
 process.chdir(dir)
 
+// vp fork: clients discover the background service through a registration file
+// named after the build channel, and the channel is the git branch. Building a
+// feature branch over dist/ silently moves the service to a new channel: the
+// running TUIs lose their registration and fight the agent's service over it
+// (restart loop, "managed service registration replaced"). Refuse before
+// touching dist; merge into vp/mobile-patches first, or force explicitly.
+if (
+  Script.preview &&
+  Script.channel !== "vp-mobile-patches" &&
+  !process.env.OPENCODE_CHANNEL &&
+  !process.env.OPENCODE_FORCE_CHANNEL
+) {
+  throw new Error(
+    `Refusing to build channel "${Script.channel}" over the vp-mobile-patches service binary. ` +
+      `Switch to vp/mobile-patches (merge your branch first), or set OPENCODE_FORCE_CHANNEL=1 if intentional.`,
+  )
+}
+
 await rm(outdir, { recursive: true, force: true })
 
 const singleFlag = process.argv.includes("--single")
