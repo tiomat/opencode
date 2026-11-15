@@ -10,6 +10,8 @@ export const wildcard = "all"
 export const registry = {
   todo: "Enable the experimental todowrite tool. Off by default in every build, including local and dev; opt in with OPENCODE_FLAGS=todo or experimental.todo: true.",
   media_blob: "Store new session media once in a deduplicated blob table instead of inline in every message row.",
+  idle_compaction:
+    "Enable experimental idle compaction: compact open sessions shortly before their prompt cache expires, so returning after a break pays only for the summary. Requires client presence reports; never compacts a cold cache.",
   artifacts: "Enable experimental artifacts backed by pluggable providers.",
   video_generate:
     "Enable experimental video generation: the HTTP API that starts a video job and stores the result, and the agent tool that saves the videos into the workspace.",
