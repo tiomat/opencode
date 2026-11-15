@@ -1,8 +1,8 @@
 import { Schema } from "effect"
 import { ascending } from "./identifier.js"
-import { statics } from "./schema.js"
+import { startingWith, statics } from "./schema.js"
 
-export const WorkspaceID = Schema.String.check(Schema.isStartingWith("wrk")).pipe(
+export const WorkspaceID = startingWith("wrk").pipe(
   Schema.brand("Workspace.ID"),
   Schema.annotate({ identifier: "Workspace.ID" }),
   statics((schema) => {

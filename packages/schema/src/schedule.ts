@@ -2,10 +2,10 @@ export * as Schedule from "./schedule.js"
 
 import { Duration, Option, Schema } from "effect"
 import { ascending } from "./identifier.js"
-import { DateTimeUtcFromMillis, NonNegativeInt, PositiveInt, optional, statics } from "./schema.js"
+import { DateTimeUtcFromMillis, NonNegativeInt, PositiveInt, startingWith, optional, statics } from "./schema.js"
 import { SessionID } from "./session-id.js"
 
-export const ID = Schema.String.check(Schema.isStartingWith("sch_")).pipe(
+export const ID = startingWith("sch_").pipe(
   Schema.brand("Schedule.ID"),
   Schema.annotate({ identifier: "Schedule.ID" }),
   statics((schema) => ({

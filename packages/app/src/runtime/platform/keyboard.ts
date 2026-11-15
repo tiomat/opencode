@@ -7,6 +7,14 @@ export function KeyboardInsets() {
     if (!viewport) return
     const root = document.documentElement
 
+    // A standalone PWA's viewport shrinks past iOS 26's floating keyboard
+    // toolbar, but browsers resize only to the keyboard's top, so the toolbar
+    // overlaps the composer's dock. The reserve is for them only; in a PWA it
+    // would just double-space the dock above the toolbar.
+    const standalone =
+      window.matchMedia("(display-mode: standalone)").matches ||
+      ("standalone" in navigator && navigator.standalone === true)
+
     const sync = () => {
       const active = document.activeElement
 
@@ -18,9 +26,16 @@ export function KeyboardInsets() {
       // and small viewport changes from browser chrome, not just editor focus.
       const keyboard = editing && root.clientHeight - viewport.height * viewport.scale > 100
 
-      if (keyboard) root.style.setProperty("--safe-area-inset-bottom", "0px")
+      if (keyboard) {
+        root.style.setProperty("--safe-area-inset-bottom", "0px")
 
-      if (!keyboard) root.style.removeProperty("--safe-area-inset-bottom")
+        if (!standalone) root.style.setProperty("--keyboard-toolbar-inset", "48px")
+      }
+
+      if (!keyboard) {
+        root.style.removeProperty("--safe-area-inset-bottom")
+        root.style.removeProperty("--keyboard-toolbar-inset")
+      }
     }
 
     sync()
@@ -34,6 +49,7 @@ export function KeyboardInsets() {
       document.removeEventListener("focusin", sync)
       document.removeEventListener("focusout", sync)
       root.style.removeProperty("--safe-area-inset-bottom")
+      root.style.removeProperty("--keyboard-toolbar-inset")
     })
   })
 

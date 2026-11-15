@@ -25,6 +25,7 @@ import {
 } from "solid-js"
 import { useConfig } from "../config"
 import { TuiKeybind } from "../config/keybind"
+import { registerCyrillicLayoutFallback } from "./cyrillic-layout"
 import { resolveInteractivity, useInteractivity } from "./interactivity"
 
 declare module "@opentui/keymap" {
@@ -87,6 +88,7 @@ function Provider(props: ParentProps<{ config?: KeymapConfig }>) {
       return [{ key, displays: context.displays }]
     }),
     registerBaseLayoutFallback(keymap),
+    registerCyrillicLayoutFallback(keymap),
     registerEscapeClearsPendingSequence(keymap),
     registerBackspacePopsPendingSequence(keymap),
     registerManagedTextareaLayer(keymap, renderer, {

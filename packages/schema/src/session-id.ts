@@ -1,8 +1,8 @@
 import { Schema } from "effect"
 import { descending } from "./identifier.js"
-import { statics } from "./schema.js"
+import { startingWith, statics } from "./schema.js"
 
-export const SessionID = Schema.String.check(Schema.isStartingWith("ses")).pipe(
+export const SessionID = startingWith("ses").pipe(
   Schema.brand("SessionID"),
   Schema.annotate({ identifier: "Session.ID" }),
   statics((schema) => ({

@@ -23,9 +23,12 @@ export function serviceWorker(directory: string) {
       // Workbox runs after Sentry's upload and cleanup, so do not publish an unuploaded map.
       sourcemap: false,
       globDirectory: directory,
+      // A PWA left suspended (iOS keeps it for weeks) never closes its old clients, so with skipWaiting off a stale
+      // build survives every server upgrade until a reinstall. Activate the new worker as soon as it installs; the
+      // shell's HTML is no-cache, so the next launch picks up the fresh precache. Claim stays off: clients running
+      // the old build keep their old precache (lazy chunks 404 on the server) until they close.
+      skipWaiting: true,
       clientsClaim: false,
-      // Keep each open tab on its complete build until all old clients close.
-      skipWaiting: false,
       inlineWorkboxRuntime: true,
       navigateFallback: "/index.html",
       // Pairing links must reach the server so it can set the session cookie.

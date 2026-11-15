@@ -2,7 +2,7 @@ import { createMemo, For, Show, createEffect, onMount, onCleanup } from "solid-j
 import { createStore } from "solid-js/store"
 import { TextAttributes, ScrollBoxRenderable } from "@opentui/core"
 import { useRenderer } from "@opentui/solid"
-import type { SessionInfo } from "@opencode/client"
+import type { ModelRef, SessionInfo } from "@opencode/client"
 import { useRoute, useRouteData } from "../../../context/route"
 import { useData } from "../../../context/data"
 import { useClient } from "../../../context/client"
@@ -18,6 +18,7 @@ interface SubagentEntry {
   sessionID: string
   agent: string
   title: string
+  model?: string
   status: string
   current: boolean
   prefix: string
@@ -54,6 +55,7 @@ export function SubagentsTab(props: { sessionID: string }) {
               ? Locale.titlecase(agentMatch[1])
               : "Subagent",
           title: agentMatch ? title.replace(agentMatch[0], "").trim() || title : title,
+          model: session.model ? modelLabel(session.model, data.location.model.list(session.location)) : undefined,
           status: data.session.status(session.id),
           current: session.id === route.sessionID,
           prefix,
@@ -243,8 +245,21 @@ export function SubagentsTab(props: { sessionID: string }) {
                       {entry.agent}: {entry.title}
                     </text>
                   </box>
+                  <Show when={entry.model}>
+                    <text
+                      fg={active() ? theme.text.action.primary.focused : theme.text.muted}
+                      wrapMode="none"
+                      paddingLeft={1}
+                    >
+                      {entry.model}
+                    </text>
+                  </Show>
                   <Show when={status()}>
-                    <text fg={active() ? theme.text.action.primary.focused : theme.text.muted} wrapMode="none">
+                    <text
+                      fg={active() ? theme.text.action.primary.focused : theme.text.muted}
+                      wrapMode="none"
+                      paddingLeft={1}
+                    >
                       {status()}
                     </text>
                   </Show>
@@ -256,4 +271,11 @@ export function SubagentsTab(props: { sessionID: string }) {
       </scrollbox>
     </Show>
   )
+}
+
+function modelLabel(model: ModelRef, models: readonly { providerID: string; id: string; name: string }[] | undefined) {
+  const display =
+    models?.find((item) => item.providerID === model.providerID && item.id === model.id)?.name ??
+    `${model.providerID}/${model.id}`
+  return model.variant && model.variant !== "default" ? `${display} (${model.variant})` : display
 }
