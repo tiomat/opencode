@@ -269,7 +269,7 @@ export const layer = Layer.effect(
 
     const state = State.create<Settings, Editor>({
       name: "session-compaction",
-      initial: () => ({ auto: true, keep: 15_000, precompute: false, idleMinTokens: 50_000 }),
+      initial: () => ({ auto: true, keep: 15_000, precompute: false, idleMinTokens: 200_000 }),
       editor: (settings) => ({
         configure: (update) => {
           Object.assign(settings, update)

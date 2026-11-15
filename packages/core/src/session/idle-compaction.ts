@@ -133,6 +133,7 @@ export const layer = Layer.effect(
       yield* Effect.sleep(Duration.millis(Math.max(0, due - now)))
       const ready = yield* eligible(sessionID)
       if (!ready) return
+      yield* Effect.logInfo("idle compaction", { sessionID })
       yield* inbox.admitCompaction({
         id: SessionMessage.ID.create(),
         sessionID,

@@ -47,7 +47,7 @@ All must hold, at fire and again at delivery:
 2. A presence lease is live.
 3. The Session is idle and settled: no active execution, no pending input, no staged revert, not archived.
 4. The cache is warm: the anchor is no older than `TTL − WARM_MARGIN` (the `precompute` rule). A cold cache is never compacted by this mechanism.
-5. The context estimate is at least `compaction.idle.min_tokens` (default 50,000).
+5. The context estimate is at least `compaction.idle.min_tokens` (default 200,000).
 6. Once per idle epoch: no completed or failed compaction since the latest user input.
 7. The Session is not a subagent (`parentID`); the resolved model has an explicit `cache.ttl` and is not native-compaction; the resolved warming setting for the model is off.
 
