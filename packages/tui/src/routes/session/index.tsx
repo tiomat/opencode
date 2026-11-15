@@ -2224,7 +2224,9 @@ function CompactionMessage(props: { message: Extract<SessionMessageInfo, { type:
           <text fg={color()}>
             {props.message.status === "completed" && props.message.native?.messages
               ? "Provider compaction"
-              : "Compaction"}
+              : props.message.reason === "idle"
+                ? "Idle compaction"
+                : "Compaction"}
           </text>
           <Show when={cancelled()}>
             <text fg={color()}>· cancelled</text>
