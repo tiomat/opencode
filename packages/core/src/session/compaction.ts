@@ -47,6 +47,8 @@ export type Settings = {
   keep: number
   /** Summarize in the background as the context nears the threshold, so automatic compaction can swap it in. */
   precompute: boolean
+  /** Floor for idle compaction: a smaller idle context is left alone, since the summary would not pay for itself. */
+  idleMinTokens: number
 }
 
 export type Editor = {
@@ -59,8 +61,8 @@ export type Estimate = { readonly measured: number; readonly estimated: number }
 export type Trigger =
   /** `overflow`: the provider just rejected this context as too long. `estimate` is `estimatePrompt(context)`. */
   | { readonly reason: "auto" | "overflow"; readonly context: SessionContext.Loaded; readonly estimate?: Estimate }
-  /** `inputID` is the `/compact` inbox item, whose message shows the outcome. */
-  | { readonly reason: "manual"; readonly context: SessionContext.Loaded; readonly inputID: SessionMessage.ID }
+  /** `inputID` is the `/compact` or idle inbox item, whose message shows the outcome. */
+  | { readonly reason: "manual" | "idle"; readonly context: SessionContext.Loaded; readonly inputID: SessionMessage.ID }
 
 export type Outcome =
   /** Only `auto` skips: the context fits, or automatic compaction is off. */
@@ -69,6 +71,7 @@ export type Outcome =
   | { readonly status: "failed"; readonly error: SessionError.Error }
 
 export interface Interface extends State.Transformable<Editor> {
+  readonly settings: () => Settings
   readonly compact: (trigger: Trigger) => Effect.Effect<Outcome>
   /**
    * Starts a background summary when the context nears the threshold. Never waits for it. Loads `context` only when
@@ -159,7 +162,7 @@ const PRECOMPUTE_LEAD = 60_000
 /** Prompt caches expire this long after their last use unless the model sets `cache.ttl`. */
 const CACHE_LIFETIME = 5 * 60_000
 /** A background summary starts only while this much of the latest response's cache lifetime is left. */
-const CACHE_MARGIN = 30_000
+export const CACHE_MARGIN = 30_000
 /**
  * The most text a swapped-in summary keeps verbatim beside it, and the tail at which a held summary is replaced, as a
  * share of the budget. Tails are usually far shorter; the limit is there for bursts of large tool inputs or pasted
@@ -266,7 +269,7 @@ export const layer = Layer.effect(
 
     const state = State.create<Settings, Editor>({
       name: "session-compaction",
-      initial: () => ({ auto: true, keep: 15_000, precompute: false }),
+      initial: () => ({ auto: true, keep: 15_000, precompute: false, idleMinTokens: 50_000 }),
       editor: (settings) => ({
         configure: (update) => {
           Object.assign(settings, update)
@@ -302,8 +305,9 @@ export const layer = Layer.effect(
       const settings = state.get()
       const context = trigger.context
 
-      // Only the user compacts when automatic compaction is off, overflow included.
-      if (trigger.reason !== "manual" && !settings.auto) return { status: "skipped" }
+      // Only the user compacts when automatic compaction is off, overflow included. Idle items re-checked
+      // `auto` at admission and delivery, so they run like manual ones here.
+      if ((trigger.reason === "auto" || trigger.reason === "overflow") && !settings.auto) return { status: "skipped" }
       if (
         trigger.reason === "auto" &&
         !due(context, calculateCeiling(context.model.limit, settings.buffer), trigger.estimate)
@@ -320,9 +324,9 @@ export const layer = Layer.effect(
           : model.cap
 
       const selected = model.context === context ? trigger : { ...trigger, context: model.context }
-      // The runner opened the manual compaction's message when it delivered the `/compact` item. An automatic one
-      // opens here, before any wait, so a background summary still being written shows as a running compaction.
-      if (trigger.reason !== "manual")
+      // The runner opened the manual or idle compaction's message when it delivered the inbox item. An automatic
+      // one opens here, before any wait, so a background summary still being written shows as a running compaction.
+      if (trigger.reason === "auto" || trigger.reason === "overflow")
         yield* bus.publish(SessionEvent.Compaction.Started, { sessionID: context.session.id, reason: "auto" })
       const swapped = held ? yield* usePrecomputed(selected, held, budget, settings) : undefined
       const compaction = swapped
@@ -911,14 +915,14 @@ export const layer = Layer.effect(
     ): Effect.fn.Return<Outcome> {
       const context = trigger.context
       const sessionID = context.session.id
-      const reason = trigger.reason === "manual" ? "manual" : "auto"
+      const reason = trigger.reason === "auto" || trigger.reason === "overflow" ? "auto" : trigger.reason
       const usage = spent.get(sessionID)
 
       if ("error" in outcome) {
         yield* bus.publish(SessionEvent.Compaction.Failed, {
           sessionID,
           reason,
-          inputID: trigger.reason === "manual" ? trigger.inputID : undefined,
+          inputID: trigger.reason === "manual" || trigger.reason === "idle" ? trigger.inputID : undefined,
           error: outcome.error,
           ...usage,
         })
@@ -943,11 +947,12 @@ export const layer = Layer.effect(
     return Service.of({
       transform: state.transform,
       reload: state.reload,
-      // A manual compaction settles through its `/compact` inbox item, which the runner owns.
+      settings: () => state.get(),
+      // A manual or idle compaction settles through its inbox item, which the runner owns.
       compact: (trigger) =>
         compact(trigger).pipe(
           Effect.onInterrupt(() =>
-            trigger.reason === "manual"
+            trigger.reason === "manual" || trigger.reason === "idle"
               ? Effect.void
               : publish(trigger, { error: { type: "compaction.interrupted", message: "Compaction was interrupted" } }),
           ),
@@ -987,7 +992,7 @@ const promptTokens = (tokens: { input: number; cache: { read: number; write: num
 const DURATION_UNITS = { ms: 1, s: 1_000, m: 60_000, h: 3_600_000, d: 86_400_000 }
 
 /** Milliseconds a prompt cache entry lives, from a `cache.ttl` such as "5m" or "1h". */
-const cacheLifetime = (ttl: string | undefined) => {
+export const cacheLifetime = (ttl: string | undefined) => {
   const match = ttl?.match(/^(\d+)(ms|s|m|h|d)$/)
   return match ? Number(match[1]) * DURATION_UNITS[match[2] as keyof typeof DURATION_UNITS] : CACHE_LIFETIME
 }
@@ -1195,6 +1200,12 @@ const hasMeasuredPrompt = (message: SessionMessage.Info, model: SessionContext.L
   !message.error &&
   message.tokens !== undefined &&
   promptTokens(message.tokens) > 0
+
+/** The newest assistant message whose measured prompt last wrote the provider's cached prefix: the cache's clock. */
+export const cacheAnchor = (
+  messages: ReadonlyArray<SessionMessage.Info>,
+  model: SessionContext.Loaded["model"]["ref"],
+) => messages.findLast((message) => hasMeasuredPrompt(message, model))
 
 /** The prompt size, only while the model, variant and agent that were measured still match; they shape the request. */
 const measuredPrompt = (context: SessionContext.Loaded) => {

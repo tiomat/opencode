@@ -259,7 +259,7 @@ export interface CompactionRunning extends Schema.Schema.Type<typeof CompactionR
 export const CompactionRunning = Schema.Struct({
   ...CompactionBase,
   status: Schema.tag("running"),
-  reason: Schema.Literals(["auto", "manual"]),
+  reason: Schema.Literals(["auto", "manual", "idle"]),
   summary: Schema.String,
 }).annotate({ identifier: "Session.Message.Compaction.Running" })
 
@@ -267,7 +267,7 @@ export interface CompactionCompleted extends Schema.Schema.Type<typeof Compactio
 export const CompactionCompleted = Schema.Struct({
   ...CompactionBase,
   status: Schema.tag("completed"),
-  reason: Schema.Literals(["auto", "manual"]),
+  reason: Schema.Literals(["auto", "manual", "idle"]),
   model: Model.Ref.pipe(optional),
   /** A provider compaction stores its replacement window in `native.messages`, replayed instead of `summary`. */
   native: Native.pipe(optional),
@@ -279,7 +279,7 @@ export interface CompactionFailed extends Schema.Schema.Type<typeof CompactionFa
 export const CompactionFailed = Schema.Struct({
   ...CompactionBase,
   status: Schema.tag("failed"),
-  reason: Schema.Literals(["auto", "manual"]),
+  reason: Schema.Literals(["auto", "manual", "idle"]),
   error: SessionError.Error,
   ...CompactionUsage,
 }).annotate({ identifier: "Session.Message.Compaction.Failed" })
