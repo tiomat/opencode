@@ -36,7 +36,7 @@ A process-local, Session-ID-keyed fiber map (the warming pattern). Like `Session
 - A timer is armed when an execution reaches a terminal event — except interruption with reason `shutdown`, which preserves the execution claim for startup recovery — and when presence is registered for an idle Session. It is cancelled on new execution, on loss of the last lease, and on `session.deleted`.
 - The timer fires at `anchor + TTL − FIRE_MARGIN`. `FIRE_MARGIN` is a constant 90 seconds; `WARM_MARGIN` reuses `CACHE_MARGIN` (30 seconds); the invariant `FIRE_MARGIN > WARM_MARGIN` keeps the fire moment inside the warm window. TTL resolves from the Session's selected model (`cache.ttl`); a Session without a measured anchor, or whose model cannot be resolved, arms nothing.
 - The anchor and the model selection are durable, so presence registration after a server restart re-arms correctly without a startup scan.
-- Cheap process-local checks (flag, lease) run before any placement-scoped history or model load, so a terminal event for an uninteresting Session costs no I/O.
+- Cheap process-local checks (lease, session state) run before any placement-scoped load; the flag and the remaining laws are read from the Session's Location, so a terminal event for an uninteresting Session costs no I/O.
 - At fire, every firing law is re-checked; a stale timer consumes itself without admitting anything.
 
 ### Firing laws

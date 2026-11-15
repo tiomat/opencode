@@ -43,6 +43,7 @@ let modelCache: Provider.Cache | undefined = { ttl: "5m" }
 let nativeCompaction = false
 let resolveError = false
 let autoEnabled = true
+let flagOverrides = "idle_compaction"
 const resolveFixture = () =>
   resolveError
     ? Effect.fail(
@@ -86,7 +87,7 @@ const locations = Layer.effect(
     () =>
       // The scheduler only resolves the model and reads compaction settings from a Location.
       // oxlint-disable-next-line typescript-eslint/no-unsafe-type-assertion
-      Layer.mergeAll(compaction, context) as unknown as Layer.Layer<
+      Layer.mergeAll(compaction, context, Flag.testLayer([], { overrides: flagOverrides })) as unknown as Layer.Layer<
         LocationServices,
         FileSystem.DirectoryNotFoundError
       >,
@@ -235,13 +236,15 @@ describe("SessionIdleCompaction", () => {
 
   it.effect("flag off arms nothing", () =>
     Effect.gen(function* () {
+      flagOverrides = "-idle_compaction"
       const id = yield* fixture()
       yield* idle(id)
 
       yield* TestClock.adjust("300 seconds")
       yield* drain
       expect(yield* inbox(id)).toEqual([])
-    }).pipe(Effect.provideService(Flag.Overrides, "-idle_compaction")),
+      flagOverrides = "idle_compaction"
+    }),
   )
 
   it.effect("a terminal execution event arms the timer", () =>

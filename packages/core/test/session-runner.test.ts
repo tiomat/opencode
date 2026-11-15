@@ -456,6 +456,7 @@ const layer = Layer.unwrap(
       PluginSupervisor.node.replace(Layer.empty),
       Plugin.node.replace(Layer.mock(Plugin.Service, { awaitActivation: Effect.suspend(() => state.activationHook) })),
       SessionModelTransport.node.replace(modelTransport),
+      Flag.node.replace(Flag.testLayer([], { overrides: "idle_compaction" })),
     ]
     const runnerLayer = AppNodeBuilder.build(SessionRunnerLLM.node, [
       ...replacements,
@@ -544,11 +545,7 @@ const layer = Layer.unwrap(
       ],
     )
   }),
-).pipe(
-  Layer.provideMerge(Layer.sync(RunnerState, makeRunnerState)),
-  Layer.provideMerge(testLLM),
-  Layer.provideMerge(Layer.succeed(Flag.Overrides, "idle_compaction")),
-)
+).pipe(Layer.provideMerge(Layer.sync(RunnerState, makeRunnerState)), Layer.provideMerge(testLLM))
 const it = testEffect(layer)
 const sessionID = Session.ID.make("ses_runner_test")
 const otherSessionID = Session.ID.make("ses_runner_other")

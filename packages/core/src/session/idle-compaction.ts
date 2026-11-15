@@ -86,14 +86,18 @@ export const layer = Layer.effect(
 
     const cancel = (sessionID: Session.ID) => FiberMap.remove(timers, sessionID)
 
-    /** The Location-scoped firing laws: model, cache clock, size floor, and epoch. */
+    /** The Location-scoped firing laws: flag, model, cache clock, size floor, and epoch. */
     const atLocation = Effect.fn("SessionIdleCompaction.atLocation")(function* (
       session: Session.Info,
       messages: ReadonlyArray<SessionMessage.Info>,
     ) {
+      const flags = yield* Flag.Service
+      if (!(yield* flags.enabled("idle_compaction"))) return undefined
       const compaction = yield* SessionCompaction.Service
       const context = yield* SessionContext.Service
-      const model = yield* context.resolveModel(session).pipe(Effect.option)
+      const model = yield* context
+        .resolveModel(session, { kind: "primary", agent: session.agent ?? Agent.defaultID })
+        .pipe(Effect.option)
       if (Option.isNone(model)) return undefined
       const entries = Option.isSome(config) ? yield* config.value.entries() : []
       const warming = model.value.cache?.warming ?? Config.latest(entries, "warming")
@@ -109,7 +113,6 @@ export const layer = Layer.effect(
 
     /** The firing laws. Returns the admission inputs when every law holds, undefined otherwise. */
     const eligible = Effect.fn("SessionIdleCompaction.eligible")(function* (sessionID: Session.ID) {
-      if (!(yield* Flag.enabled("idle_compaction"))) return undefined
       if (!(yield* presence.present(sessionID))) return undefined
       const session = yield* store.get(sessionID)
       if (!session || session.parentID || session.time.archived || session.revert) return undefined
