@@ -42,6 +42,27 @@ The background service (phone, TUI, web) runs the fork binary built from `vp/loc
 
 Do not build the service binary from another branch: the channel guard in `packages/cli/script/build.ts` refuses it (override `OPENCODE_FORCE_CHANNEL=1` only for intentional test builds).
 
+## Development loop
+
+Iterate on the fork without breaking the running service:
+
+1. Edit on `vp/local` (or a patch branch, then merge — see above).
+2. Check from the package directory: `bun typecheck`, tests via `bun run script/test.ts test/<file>` (never from repo root).
+3. Build: `cd packages/cli && bun run build --single` (a few minutes).
+4. Verify the build landed: `grep -c '<a string your change introduced>' packages/cli/dist/cli-darwin-arm64/bin/opencode` and check the binary mtime. Builds do update the binary; when in doubt, grep it instead of blaming caching.
+5. Restart safely: `~/dev/machine/bin/opencode-fork-restart` — kills stale fork TUIs, restarts the service, waits for `/app`. Never use a bare `vpa restart opencode` while a fork TUI is open (see Pitfalls).
+6. Verify the service: `/app` returns 200; `OPENCODE_FLAGS` is present in the service env (`ps eww -p <pid>`); live logs via `vpa logs opencode`.
+
+The restart breaks live agent sessions (they run through this service); clients reconnect on their own. A restart issued from inside an agent session interrupts that session's tool call — expected; verify health afterwards. A background shell containing the restart is cancelled with the service's process tree: restart in a separate foreground call, then start captures.
+
+## Pitfalls (dead loops already hit)
+
+- **Registration loop.** A fork TUI keeps the old build in memory. After a rebuild + restart its version mismatches the service, and ensure→replace overwrites the service registration — the agent service dies, the supervisor restarts it, the TUI replaces it again («managed service registration replaced»). `opencode-fork-restart` kills stale TUIs first; a bare `vpa restart` does not. Reopen TUIs after the restart.
+- **Stale log file.** `~/.local/share/opencode/log/opencode.log` can freeze at the previous run's timestamp after a restart; grepping it shows old decisions (e.g. a flag-off that no longer exists in the binary). Use `vpa logs opencode` for live output.
+- **Flag shadowing.** A project config's `experimental` block shadows the global one entirely (latest-wins). The wrapper's `OPENCODE_FLAGS` env override is the reliable enablement; verify it in the service env, not in config files.
+- **Idle-compaction test never fires.** The session must be genuinely idle for ~TTL − 90s (3.5 min for a 5m TTL) with a presence lease (open tab). Any user message or assistant processing blocks it; API reads do not. Don't chat with the test session while waiting — watch `vpa logs opencode` for the `idle compaction` line and the session's compaction marker instead.
+- **Debugging blind.** Before removing diagnostic logging, capture one full idle window with it; after a rebuild, confirm the marker string is in the binary. Most "it doesn't work" rounds here were stale logs or an unverified build, not the feature.
+
 ## Feature flags
 
 Flags default on only in `local`/`dev` build channels, so fork-local features are off in `vp-local` builds unless enabled explicitly. Two gotchas:

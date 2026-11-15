@@ -16,6 +16,16 @@
 - Without `noDefaults`, Playwright applies light-mode media emulation during attachment. An app following the system theme then flashes light until the connection closes. The option also preserves the existing focus and other media preferences.
 - Do not emulate a color scheme or reduced-motion preference on the user's live window unless explicitly requested; use an isolated test context for those scenarios.
 
+## Fork Service Development
+
+This checkout is the fork (`tiomat/opencode`); the background service (phone, web, TUI) runs its binary on channel `vp-local`. Read `FORK.md` before rebuilding or restarting the service — it documents the branch model, the development loop, and the dead loops already hit.
+
+- Rebuild with `cd packages/cli && bun run build --single`; verify the binary contains your change (`grep -c '<marker>' packages/cli/dist/cli-darwin-arm64/bin/opencode`) before blaming caching.
+- Restart only via `~/dev/machine/bin/opencode-fork-restart` (kills stale fork TUIs, waits for health). A bare `vpa restart opencode` with a fork TUI open causes a managed-service registration loop.
+- The restart interrupts agent sessions running through the service, including the one issuing it; a background shell containing the restart is cancelled. Restart in a separate foreground call, then start captures.
+- Live service logs: `vpa logs opencode`. The file `~/.local/share/opencode/log/opencode.log` can be stale after a restart — grepping it shows the previous run's decisions.
+- Fork-local flags are off in `vp-local` builds; the `~/dev/machine/bin/opencode` wrapper enables them via `OPENCODE_FLAGS`. A project's `experimental` config block shadows the global one (latest-wins) — prefer the env override and verify it in the service env.
+
 ## TUI Stories
 
 - When a user asks for a TUI story, add a fixture-driven story under `packages/tui/src/feature-plugins/system/storybook` and register it in `index.tsx`.
