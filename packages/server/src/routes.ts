@@ -18,6 +18,8 @@ import { BlobStore } from "@opencode/core/blob-store"
 import { VideoGeneration } from "@opencode/core/video-generation"
 import { Worktree } from "@opencode/core/worktree"
 import { Session } from "@opencode/core/session"
+import { SessionIdleCompaction } from "@opencode/core/session/idle-compaction"
+import { SessionPresence } from "@opencode/core/session/presence"
 import { Instance } from "@opencode/core/instance/service"
 import { SessionTransfer } from "@opencode/core/session/transfer"
 import { InstructionEntry } from "@opencode/core/session/instruction-entry"
@@ -79,6 +81,8 @@ const applicationServiceNodes = [
   Project.sweepNode,
   Worktree.node,
   Session.node,
+  SessionPresence.node,
+  SessionIdleCompaction.node,
   Instance.node,
   SessionTransfer.node,
   InstructionEntry.node,
