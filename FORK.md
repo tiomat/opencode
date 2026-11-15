@@ -41,3 +41,10 @@ The background service (phone, TUI, web) runs the fork binary built from `vp/loc
 - `opencode` in PATH is the `~/dev/machine/bin/opencode` wrapper around the fork binary.
 
 Do not build the service binary from another branch: the channel guard in `packages/cli/script/build.ts` refuses it (override `OPENCODE_FORCE_CHANNEL=1` only for intentional test builds).
+
+## Feature flags
+
+Flags default on only in `local`/`dev` build channels, so fork-local features are off in `vp-local` builds unless enabled explicitly. Two gotchas:
+
+- A project config's `experimental` block shadows the global one entirely (`Config.latest` is latest-wins per key). A repo with its own `experimental` (e.g. this repo's `part_rows`) silently drops globally set flags.
+- The env override `OPENCODE_FLAGS` beats config and is immune to that shadowing. The `~/dev/machine/bin/opencode` wrapper exports `OPENCODE_FLAGS=idle_compaction` (appending to any existing value), so both the service and every client launched through the wrapper get the flag.
