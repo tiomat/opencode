@@ -30,16 +30,16 @@ process.chdir(dir)
 // feature branch over dist/ silently moves the service to a new channel: the
 // running TUIs lose their registration and fight the agent's service over it
 // (restart loop, "managed service registration replaced"). Refuse before
-// touching dist; merge into vp/mobile-patches first, or force explicitly.
+// touching dist; merge into vp/local first, or force explicitly.
 if (
   Script.preview &&
-  Script.channel !== "vp-mobile-patches" &&
+  Script.channel !== "vp-local" &&
   !process.env.OPENCODE_CHANNEL &&
   !process.env.OPENCODE_FORCE_CHANNEL
 ) {
   throw new Error(
-    `Refusing to build channel "${Script.channel}" over the vp-mobile-patches service binary. ` +
-      `Switch to vp/mobile-patches (merge your branch first), or set OPENCODE_FORCE_CHANNEL=1 if intentional.`,
+    `Refusing to build channel "${Script.channel}" over the vp-local service binary. ` +
+      `Switch to vp/local (merge your branch first), or set OPENCODE_FORCE_CHANNEL=1 if intentional.`,
   )
 }
 
