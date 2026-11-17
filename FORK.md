@@ -32,6 +32,14 @@ git push origin vp/local <patch>
 
 Fork-local features stay on the fork: no upstream PRs for them. Upstream-worthy fixes go through normal PRs to `sst/opencode:dev` from a branch based on `dev`.
 
+## Fork-local features
+
+- **File links in the TUI.** A markdown link to a local file in a transcript used to fail with
+  «Only http and https links can be opened in the browser». Now `[report.md](report.md)` opens the
+  file in `$OPENCODE_FILE_APP` (default `Zed`), resolving relative paths against the session
+  directory; the system handler is the fallback for formats the app cannot open. `OPENCODE_FILE_APP=`
+  (empty) always uses the system handler. Commit `feat(tui): open local file links from the transcript`.
+
 ## Build and service
 
 The background service (phone, TUI, web) runs the fork binary built from `vp/local`; the build channel is `vp-local` (service registration `service-vp-local.json`). The web UI is embedded into the same binary and served at `/app`.
