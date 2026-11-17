@@ -7,6 +7,6 @@ export function openUrl(input: string) {
   return open(url.href)
 }
 
-export function openPath(path: string) {
-  return open(path)
+export function openPath(path: string, app?: string) {
+  return open(path, app ? { app: { name: app } } : undefined)
 }

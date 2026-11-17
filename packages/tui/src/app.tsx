@@ -93,6 +93,7 @@ import { isFallbackTitle } from "@opencode/util/session-title-fallback"
 import * as Model from "./util/model"
 import { ArgsProvider, useArgs, type Args } from "./context/args"
 import { openUrl } from "@opencode/util/open"
+import { openTarget } from "./util/open-target"
 import { PromptRefProvider, usePromptRef } from "./context/prompt"
 import { Config, ConfigProvider, useConfig } from "./config"
 import { newSessionLocation } from "./config/new-session-location"
@@ -510,6 +511,15 @@ function App() {
   const { mode, supports, setMode, locked, lock, unlock, afterPaint } = useThemes()
   const data = useData()
   const location = useLocation()
+  // Transcript links were written in the session's project: relative paths resolve there, not in
+  // whatever directory the TUI was started from.
+  const linkDirectory = createMemo(() => {
+    if (route.data.type === "session") {
+      const session = data.session.get(route.data.sessionID)
+      if (session) return session.location.directory
+    }
+    return location.current?.directory
+  })
   const exit = useExit()
   const promptRef = usePromptRef()
   const plugins = usePlugin()
@@ -1417,7 +1427,7 @@ function App() {
       }}
       onMouseUp={(event) => {
         const url = clickedLink(renderer, event)
-        if (url) return void openUrl(url).catch(toast.error)
+        if (url) return void openTarget(url, linkDirectory()).catch(toast.error)
         if (copyOnSelectEnabled()) Selection.copyOnSelectRelease(event, renderer, toast, clipboard)
       }}
     >
