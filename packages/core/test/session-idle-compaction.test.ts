@@ -63,7 +63,7 @@ const resolveFixture = () =>
       )
 
 const compaction = Layer.mock(SessionCompaction.Service)({
-  settings: () => ({ auto: autoEnabled, keep: 15_000, precompute: false, idleMinTokens: 50_000 }),
+  settings: () => ({ auto: autoEnabled, keep: 15_000, background: false, idleMinTokens: 50_000 }),
   transform: () => Effect.die("unused"),
   reload: () => Effect.void,
   compact: () => Effect.die("idle admission must not compact"),

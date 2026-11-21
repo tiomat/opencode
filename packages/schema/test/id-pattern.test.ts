@@ -5,7 +5,6 @@ import { Event } from "../src/event.js"
 import { Form } from "../src/form.js"
 import { Permission } from "../src/permission.js"
 import { Pty } from "../src/pty.js"
-import { Schedule } from "../src/schedule.js"
 import { startingWith } from "../src/schema.js"
 import { SessionID } from "../src/session-id.js"
 import { SessionMessage } from "../src/session-message.js"
@@ -38,7 +37,6 @@ describe("ID patterns", () => {
     ["Form.ID", Form.ID],
     ["Pty.ID", Pty.ID],
     ["SessionMessage.ID", SessionMessage.ID],
-    ["Schedule.ID", Schedule.ID],
   ] as const
 
   test.each(cases)("%s matches its own generated ID under full-match semantics", (_name, schema) => {

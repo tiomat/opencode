@@ -12,7 +12,7 @@ import { Locale } from "../../../util/locale"
 import { Keymap } from "../../../context/keymap"
 import { useComposerTab } from "./context"
 import { withTimestampedFallback } from "@opencode/util/session-title-fallback"
-import { sessionFamily } from "../../../util/session"
+import { ownedJobs, sessionFamily } from "../../../util/session"
 
 interface SubagentEntry {
   sessionID: string
@@ -20,6 +20,8 @@ interface SubagentEntry {
   title: string
   model?: string
   status: string
+  // Running jobs in its tree. A subagent stays active while any of them runs.
+  jobs: string[]
   current: boolean
   prefix: string
 }
@@ -43,6 +45,7 @@ export function SubagentsTab(props: { sessionID: string }) {
     const current = session()
     if (!current) return []
 
+    const jobs = data.job.list(data.session.root(current.id))
     const result = sessionFamily<SessionInfo>(data.session.list(), current.id).map(
       ({ session, prefix }): SubagentEntry => {
         const title = withTimestampedFallback(session)
@@ -57,13 +60,14 @@ export function SubagentsTab(props: { sessionID: string }) {
           title: agentMatch ? title.replace(agentMatch[0], "").trim() || title : title,
           model: session.model ? modelLabel(session.model, data.location.model.list(session.location)) : undefined,
           status: data.session.status(session.id),
+          jobs: ownedJobs(jobs, session.id, (id) => data.session.get(id)?.parentID).map((job) => job.id),
           current: session.id === route.sessionID,
           prefix,
         }
       },
     )
 
-    return result.filter((entry) => (filter.active ? entry.status === "running" : entry.status !== "running"))
+    return result.filter((entry) => filter.active === (entry.status === "running" || entry.jobs.length > 0))
   })
 
   let selectedSessionID = ""
@@ -124,7 +128,7 @@ export function SubagentsTab(props: { sessionID: string }) {
       hints: () => {
         const entry = selectedEntry()
         return [
-          ...(entry?.status === "running"
+          ...(entry && (entry.status === "running" || entry.jobs.length > 0)
             ? [{ label: "interrupt", shortcut: shortcuts.get("composer.subagent.interrupt") ?? "" }]
             : []),
           {
@@ -190,8 +194,9 @@ export function SubagentsTab(props: { sessionID: string }) {
         group: "Composer",
         run() {
           const entry = selectedEntry()
-          if (!entry || entry.status !== "running") return
-          void client.api.session.interrupt({ sessionID: entry.sessionID })
+          if (!entry) return
+          if (entry.status === "running") void client.api.session.interrupt({ sessionID: entry.sessionID })
+          entry.jobs.forEach((id) => void client.api.experimental.job.cancel({ id }))
         },
       },
     ],
