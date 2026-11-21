@@ -27,6 +27,7 @@ import { SessionProjector } from "@opencode/core/session/projector"
 import { SessionRunnerModel } from "@opencode/core/session/runner/model"
 import { SessionMessageTable, SessionTable } from "@opencode/core/session/sql"
 import { SessionStore } from "@opencode/core/session/store"
+import { WarmingPlugin } from "@opencode/core/plugin/warming"
 import { Agent } from "@opencode/core/agent"
 import { Provider } from "@opencode/schema/provider"
 import { Model } from "@opencode/schema/model"
@@ -43,6 +44,7 @@ let modelCache: Provider.Cache | undefined = { ttl: "5m" }
 let nativeCompaction = false
 let resolveError = false
 let autoEnabled = true
+let flagOverrides = "idle_compaction"
 const resolveFixture = () =>
   resolveError
     ? Effect.fail(
@@ -62,14 +64,17 @@ const resolveFixture = () =>
       )
 
 const compaction = Layer.mock(SessionCompaction.Service)({
-  settings: () => ({ auto: autoEnabled, keep: 15_000, precompute: false, idleMinTokens: 50_000 }),
+  settings: () => ({ auto: autoEnabled, keep: 15_000, background: false, idleMinTokens: 50_000 }),
   transform: () => Effect.die("unused"),
   reload: () => Effect.void,
   compact: () => Effect.die("idle admission must not compact"),
   precompute: () => Effect.die("unused"),
 })
 const context = Layer.mock(SessionContext.Service)({
-  select: () => Effect.die("unused"),
+  // The scheduler only needs the selected agent ID to resolve the model; resolveModel ignores its session argument.
+  select: () =>
+    // oxlint-disable-next-line typescript-eslint/no-unsafe-type-assertion
+    Effect.succeed({ agent: { id: Agent.defaultID, info: Agent.Info.default(Agent.defaultID) } } as unknown as SessionContext.Selection),
   load: () => Effect.die("unused"),
   resolveModel: () => resolveFixture(),
   selectTitle: () => Effect.die("unused"),
@@ -84,9 +89,9 @@ const locations = Layer.effect(
   LocationServiceMap.Service,
   LayerMap.make(
     () =>
-      // The scheduler only resolves the model and reads compaction settings from a Location.
+      // The scheduler reads the flag, compaction settings, and model from a Location; Flag is Location-scoped now.
       // oxlint-disable-next-line typescript-eslint/no-unsafe-type-assertion
-      Layer.mergeAll(compaction, context) as unknown as Layer.Layer<
+      Layer.mergeAll(compaction, context, Flag.testLayer([], { overrides: flagOverrides })) as unknown as Layer.Layer<
         LocationServices,
         FileSystem.DirectoryNotFoundError
       >,
@@ -235,13 +240,15 @@ describe("SessionIdleCompaction", () => {
 
   it.effect("flag off arms nothing", () =>
     Effect.gen(function* () {
+      flagOverrides = "-idle_compaction"
       const id = yield* fixture()
       yield* idle(id)
 
       yield* TestClock.adjust("300 seconds")
       yield* drain
       expect(yield* inbox(id)).toEqual([])
-    }).pipe(Effect.provideService(Flag.Overrides, "-idle_compaction")),
+      flagOverrides = "idle_compaction"
+    }),
   )
 
   it.effect("a terminal execution event arms the timer", () =>
@@ -463,6 +470,68 @@ describe("SessionIdleCompaction", () => {
       yield* TestClock.adjust("300 seconds")
       yield* drain
       expect(yield* inbox(id)).toHaveLength(1)
+    }),
+  )
+
+  it.effect("a warming-configured Session arms nothing without a handoff", () =>
+    Effect.gen(function* () {
+      modelCache = { ttl: "5m", warming: true }
+      const id = yield* fixture()
+      yield* idle(id)
+
+      yield* TestClock.adjust("300 seconds")
+      yield* drain
+      expect(yield* inbox(id)).toEqual([])
+      modelCache = { ttl: "5m" }
+    }),
+  )
+
+  it.effect("a warming handoff fires on the keep-alive clock and carries it to delivery", () =>
+    Effect.gen(function* () {
+      modelCache = { ttl: "5m", warming: true }
+      const id = yield* fixture()
+      yield* idle(id)
+
+      yield* TestClock.adjust("300 seconds")
+      yield* drain
+      expect(yield* inbox(id)).toEqual([])
+
+      // The warming window ended; its last ping wrote the cache at 200s. The handoff arms anchor-independent firing.
+      const bus = yield* Bus.Service
+      yield* bus.publish(WarmingPlugin.Handoff, { sessionID: id, sent: 200_000 })
+      yield* drain
+
+      // due = 200s + 5m - 90s = 410s.
+      yield* TestClock.adjust("100 seconds")
+      yield* drain
+      expect(yield* inbox(id)).toEqual([])
+
+      yield* TestClock.adjust("20 seconds")
+      yield* drain
+      expect(yield* inbox(id)).toEqual([
+        expect.objectContaining({
+          type: "compaction",
+          delivery: "queue",
+          payload: expect.objectContaining({ reason: "idle", handoff: 200_000 }),
+        }),
+      ])
+      modelCache = { ttl: "5m" }
+    }),
+  )
+
+  it.effect("a cold handoff clock arms nothing", () =>
+    Effect.gen(function* () {
+      modelCache = { ttl: "5m", warming: true }
+      const id = yield* fixture()
+      // By 280s a keep-alive sent at 0 is past TTL - WARM_MARGIN (270s), so the handoff arms nothing.
+      yield* TestClock.adjust("280 seconds")
+      const bus = yield* Bus.Service
+      yield* bus.publish(WarmingPlugin.Handoff, { sessionID: id, sent: 0 })
+      yield* drain
+      yield* TestClock.adjust("300 seconds")
+      yield* drain
+      expect(yield* inbox(id)).toEqual([])
+      modelCache = { ttl: "5m" }
     }),
   )
 })

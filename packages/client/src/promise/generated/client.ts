@@ -2839,8 +2839,6 @@ export function make(options: ClientOptions) {
       },
       /** @deprecated Use `client.experimental.session.log`. Removed in the next minor. */
       log: client.experimental.session.log,
-      /** @deprecated Use `client.experimental.session.presence`. Removed in the next minor. */
-      presence: client.experimental.session.presence,
     },
     /** @deprecated Use `client.experimental.generate`. Removed in the next minor. */
     generate: {

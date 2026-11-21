@@ -1,9 +1,10 @@
 import { describe, expect } from "bun:test"
 import type { SessionContext } from "@opencode/plugin/effect/session"
 import { Document, Info } from "@opencode/schema/config"
-import { Event } from "@opencode/schema/event"
+import { Event, ID, type Payload } from "@opencode/schema/event"
 import { Money } from "@opencode/schema/money"
 import { Agent } from "@opencode/core/agent"
+import { Bus } from "@opencode/core/bus"
 import { Config } from "@opencode/core/config"
 import { Location } from "@opencode/core/location"
 import { Model } from "@opencode/core/model"
@@ -13,7 +14,7 @@ import { Provider } from "@opencode/core/provider"
 import { AbsolutePath } from "@opencode/core/schema"
 import { Session } from "@opencode/core/session"
 import { SessionEvent } from "@opencode/core/session/event"
-import { Clock, DateTime, Duration, Effect, Exit, Queue, Schema, Scope, Stream } from "effect"
+import { Clock, DateTime, Duration, Effect, Exit, Layer, Queue, Schema, Scope, Stream } from "effect"
 import { TestClock } from "effect/testing"
 import { it } from "../lib/effect"
 import { host } from "./host"
@@ -56,6 +57,7 @@ const run = Effect.fnUntraced(function* (
   ping = Duration.zero,
 ) {
   const warms: number[] = []
+  const handoffs: number[] = []
   const events = yield* Queue.unbounded<
     SessionEvent.Execution.Succeeded | SessionEvent.Compaction.Failed | SessionEvent.Deleted
   >()
@@ -88,7 +90,16 @@ const run = Effect.fnUntraced(function* (
     }),
   ).pipe(
     Effect.provide(
-      Config.testLayer([new Document({ type: "document", info: Schema.decodeUnknownSync(Info)({ warming }) })]),
+      Layer.mergeAll(
+        Config.testLayer([new Document({ type: "document", info: Schema.decodeUnknownSync(Info)({ warming }) })]),
+        Layer.mock(Bus.Service, {
+          publish: (definition, data) =>
+            Effect.suspend(() => {
+              if (definition.type === WarmingPlugin.Handoff.type) handoffs.push((data as { sent: number }).sent)
+              return Effect.succeed({ id: ID.create(), type: definition.type, data } as Payload<typeof definition>)
+            }),
+        }),
+      ),
     ),
   )
   const hook = (name: string) => {
@@ -127,7 +138,7 @@ const run = Effect.fnUntraced(function* (
   /** One whole turn whose response ends right away. */
   const turn = send.pipe(Effect.andThen(end))
   const at = (minutes: number) => TestClock.setTime(minutes * 60_000).pipe(Effect.andThen(Effect.yieldNow))
-  return { warms, send, end, compact, compactionFailed, remove, turn, at }
+  return { warms, handoffs, send, end, compact, compactionFailed, remove, turn, at }
 })
 
 describe("WarmingPlugin interval", () => {
@@ -318,6 +329,38 @@ describe("WarmingPlugin lifecycle", () => {
       yield* Scope.close(scope, Exit.void)
       for (const minutes of [4, 8]) yield* warming.at(minutes)
       expect(warming.warms).toEqual([])
+    }),
+  )
+})
+
+describe("WarmingPlugin handoff", () => {
+  it.effect("hands the warm cache to idle compaction when the window ends", () =>
+    Effect.gen(function* () {
+      const warming = yield* run(true, { ttl: "5m" })
+      yield* warming.turn
+      for (const minutes of [4.5, 9, 13.5, 18, 22.5, 27, 30]) yield* warming.at(minutes)
+      expect(warming.warms).toEqual([4.5, 9, 13.5, 18, 22.5, 27])
+      // The last ping wrote the cache at 27m; the window ends at 30m and hands that clock to idle compaction.
+      expect(warming.handoffs).toEqual([27 * 60_000])
+    }),
+  )
+
+  it.effect("hands off the request clock when the cache outlives the window", () =>
+    Effect.gen(function* () {
+      const warming = yield* run(true, { ttl: "1h" })
+      yield* warming.turn
+      for (const minutes of [4, 27, 54]) yield* warming.at(minutes)
+      expect(warming.warms).toEqual([])
+      expect(warming.handoffs).toEqual([0])
+    }),
+  )
+
+  it.effect("does not hand off when warming is off", () =>
+    Effect.gen(function* () {
+      const warming = yield* run(false)
+      yield* warming.turn
+      for (const minutes of [4, 30]) yield* warming.at(minutes)
+      expect(warming.handoffs).toEqual([])
     }),
   )
 })

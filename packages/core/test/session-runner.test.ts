@@ -88,6 +88,7 @@ import { Location } from "@opencode/core/location"
 import { Provider } from "@opencode/core/provider"
 import {
   Cause,
+  Clock,
   Context,
   DateTime,
   Deferred,
@@ -7677,13 +7678,17 @@ describe("idle compaction delivery", () => {
   // The harness's execution wrapper skips terminal settlement; supply it so time_idle exists.
   const settle = (s: Scenario) => s.bus.publish(SessionEvent.Execution.Succeeded, { sessionID })
 
-  const admitIdle = Effect.fnUntraced(function* (s: Scenario, epoch?: number) {
+  const admitIdle = Effect.fnUntraced(function* (s: Scenario, epoch?: number, handoff?: number) {
     const info = yield* s.session.get(sessionID)
     return yield* s.sessionInbox.admitCompaction({
       id: SessionMessage.ID.create(),
       sessionID,
       delivery: "queue",
-      payload: { reason: "idle", idle: epoch ?? (info.time.idle ? DateTime.toEpochMillis(info.time.idle) : 0) },
+      payload: {
+        reason: "idle",
+        idle: epoch ?? (info.time.idle ? DateTime.toEpochMillis(info.time.idle) : 0),
+        handoff,
+      },
     })
   })
 
@@ -7815,5 +7820,41 @@ describe("idle compaction delivery", () => {
     expect(s.requests).toHaveLength(2)
     expect((yield* s.messages).filter((message) => message.type === "compaction")).toHaveLength(1)
     expect(yield* s.inbox).toEqual([])
+  })
+
+  idleScenario("a warming handoff delivers idle compaction on the keep-alive clock", function* (s) {
+    s.cache = { ttl: "5m", warming: true }
+    yield* s.llm.push(
+      TestLLM.textWithUsage("First answer", "first", 80_000),
+      TestLLM.text("## Objective\n- summary", "idle-summary"),
+    )
+    yield* s.runPrompt("Start")
+    yield* settle(s)
+    // Warming pings never move the durable anchor; the handoff clock carries the cache's true age to delivery.
+    yield* admitIdle(s, undefined, yield* Clock.currentTimeMillis)
+
+    yield* s.resume
+
+    expect(s.requests).toHaveLength(2)
+    expect((yield* s.messages).find((message) => message.type === "compaction")).toMatchObject({
+      status: "completed",
+      reason: "idle",
+    })
+    expect(yield* s.inbox).toEqual([])
+  })
+
+  idleScenario("a warming-configured Session without a handoff consumes the idle item", function* (s) {
+    s.cache = { ttl: "5m", warming: true }
+    yield* s.llm.push(TestLLM.textWithUsage("First answer", "first", 80_000))
+    yield* s.runPrompt("Start")
+    yield* settle(s)
+    yield* admitIdle(s)
+
+    yield* s.resume
+
+    expect(s.requests).toHaveLength(1)
+    expect((yield* s.messages).some((message) => message.type === "compaction")).toBe(false)
+    expect(yield* s.inbox).toEqual([])
+    expect(yield* eventsOfType(s, "session.compaction.started")).toEqual([])
   })
 })

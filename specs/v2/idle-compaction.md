@@ -6,6 +6,8 @@ Status: **Draft** (revised after independent review).
 
 Open Sessions compact while idle, shortly before their provider prompt cache expires. A process-local server scheduler admits an ordinary compaction control item when the Session's cache anchor approaches `TTL − fire margin`, the cache is still warm, and the context is large enough. Interest is expressed by client presence leases — "this Session is open in a tab" — which survive frozen or killed clients. The mechanism never compacts a cold cache, never compacts a Session without a live presence lease, and never absorbs an explicit manual compaction into an idle one.
 
+Warming and idle compaction are two phases of one strategy, not alternatives. While a Session is live and a return is likely, the warming plugin keeps its cache warm with keep-alive pings. When the warming window ends (or the cache outlives the window, so no ping is needed), warming hands the still-warm cache to idle compaction, which compacts at `keep-alive clock + TTL − fire margin` rather than letting the cache expire cold. The handoff carries the cache's true clock — the last request or ping that wrote it — because warming pings never move the durable anchor.
+
 The behavior is gated by the `idle_compaction` flag; the only tuning knob is `compaction.idle.min_tokens`. Compaction reason `"idle"` joins the event reasons `auto | manual` (`overflow` remains a Trigger-only reason that folds into `auto`).
 
 ## Context
@@ -33,10 +35,10 @@ The cache's true clock is the **anchor**: the newest assistant message with a me
 
 A process-local, Session-ID-keyed fiber map (the warming pattern). Like `SessionExecution`, the scheduler discovers placement through `SessionStore` and `LocationServiceMap` when it acts; no layer above it takes a Session ID. Active-execution checks are process-local, like the rest of Session Core before clustering.
 
-- A timer is armed when an execution reaches a terminal event — except interruption with reason `shutdown`, which preserves the execution claim for startup recovery — and when presence is registered for an idle Session. It is cancelled on new execution, on loss of the last lease, and on `session.deleted`.
-- The timer fires at `anchor + TTL − FIRE_MARGIN`. `FIRE_MARGIN` is a constant 90 seconds; `WARM_MARGIN` reuses `CACHE_MARGIN` (30 seconds); the invariant `FIRE_MARGIN > WARM_MARGIN` keeps the fire moment inside the warm window. TTL resolves from the Session's selected model (`cache.ttl`); a Session without a measured anchor, or whose model cannot be resolved, arms nothing.
-- The anchor and the model selection are durable, so presence registration after a server restart re-arms correctly without a startup scan.
-- Cheap process-local checks (flag, lease) run before any placement-scoped history or model load, so a terminal event for an uninteresting Session costs no I/O.
+- A timer is armed when an execution reaches a terminal event — except interruption with reason `shutdown`, which preserves the execution claim for startup recovery — when presence is registered for an idle Session, and when warming publishes a handoff. It is cancelled on new execution, on loss of the last lease, and on `session.deleted`; cancellation also drops any recorded handoff clock.
+- The timer fires at `cache clock + TTL − FIRE_MARGIN`. `FIRE_MARGIN` is a constant 90 seconds; `WARM_MARGIN` reuses `CACHE_MARGIN` (30 seconds); the invariant `FIRE_MARGIN > WARM_MARGIN` keeps the fire moment inside the warm window. TTL resolves from the Session's selected model (`cache.ttl`). The cache clock is the anchor's creation time for an ordinary Session, or the handed-off keep-alive clock for a warming-configured one. A Session without a measured anchor, or whose model cannot be resolved, arms nothing.
+- The anchor and the model selection are durable, so presence registration after a server restart re-arms correctly without a startup scan. A handoff clock is process-local like the timer and the leases; a stranded idle item admitted from one is consumed without compaction by the epoch and warmth checks after a restart.
+- Cheap process-local checks (lease, durable Session state, active execution, pending input) run before any Location load. `Flag` is Location-scoped, so the flag check runs first inside the Location scope, before model and history resolution; a terminal event for an uninteresting Session still costs no placement-scoped model or history I/O.
 - At fire, every firing law is re-checked; a stale timer consumes itself without admitting anything.
 
 ### Firing laws
@@ -46,22 +48,29 @@ All must hold, at fire and again at delivery:
 1. Flag `idle_compaction` enabled, and automatic compaction (`compaction.auto`) enabled — checked before admission, so a disabled configuration writes no durable events.
 2. A presence lease is live.
 3. The Session is idle and settled: no active execution, no pending input, no staged revert, not archived.
-4. The cache is warm: the anchor is no older than `TTL − WARM_MARGIN` (the `precompute` rule). A cold cache is never compacted by this mechanism.
+4. The cache is warm: the cache clock is no older than `TTL − WARM_MARGIN` (the `precompute` rule). A cold cache is never compacted by this mechanism.
 5. The context estimate is at least `compaction.idle.min_tokens` (default 50,000).
 6. Once per idle epoch: no completed or failed compaction since the latest user input.
-7. The Session is not a subagent (`parentID`); the resolved model has an explicit `cache.ttl` and is not native-compaction; the resolved warming setting for the model is off.
+7. The Session is not a subagent (`parentID`); the resolved model has an explicit `cache.ttl` and is not native-compaction. A warming-configured model is eligible only through a handoff (law 4 then uses the keep-alive clock); without one, warming owns the Session entirely.
 
 The cacheable predicate is deliberately conservative: only an explicit `cache.ttl` gives a known cache clock. Implicitly caching providers without catalog TTL data are out of scope until the catalog describes them; compacting them on a guessed clock would be paid and lossy without a known benefit.
 
-Warming and idle compaction are alternative strategies for the same cost: keep-alive pings versus one summary. The predicate is "warming configured for the resolved model" (top-level `warming` or the model's `cache.warming`), not "warming loop active": the plugin's loop state is private, and warming pings are generate requests that do not move the anchor. A warming-configured Session is therefore excluded even after the warming window expires; its cache then dies as it does today, with no regression. Handoff after the window would require a shared warming-state registry and is deferred.
+### Warming handoff
+
+Warming keeps a live Session's cache warm while a return is likely; idle compaction takes over before the cache dies, so a return after the window pays only for the summary instead of a cold reprocess. The handoff is an ephemeral bus event, `session.warming.handoff` `{ sessionID, sent }`, never journaled — like presence, it is process-local interest. `sent` is the epoch millis of the request or keep-alive ping that last wrote the cache.
+
+- The warming plugin publishes it when its keep-alive loop reaches the end of the warming window (`sent` is the last ping), and when the cache outlives the window so no ping is needed (`sent` is the request that triggered the hook). It does not publish on a cache-miss stop, on warming being turned off, or when a new request replaces the loop: a new request moves the durable anchor and starts a fresh window, and the scheduler drops the old handoff clock on `session.execution.started`.
+- The scheduler records `sessionID → sent` and re-arms from `sent + TTL − FIRE_MARGIN`. While the window is active no handoff exists, so a warming-configured Session is left to warming; the handoff fires only after the window ends, while the cache is still warm.
+- The idle item's payload carries the handoff clock (`handoff`) beside the epoch anchor. Delivery re-checks warmth against it. The clock is an immutable historical fact, and the epoch check guarantees no newer real request moved it: warming pings only follow a real request within its window, and a real request advances `time_idle`, stranding the item. A warming-configured Session whose item carries no handoff clock is consumed without compaction.
+- A handoff clock is dropped on new execution, deletion, and loss of the last lease. After a server restart the clock is gone; a stranded idle item is consumed without compaction by the epoch and warmth checks, and a returning client's presence re-arms only from durable state (no handoff), leaving the warming-configured Session to warming again.
 
 ### Execution
 
 The scheduler calls `admitCompaction` and `execution.wake` directly, not the `Session.compact` facade, which commits a staged revert — idle compaction must not commit a revert without the user's will.
 
-- The idle item's payload carries `reason: "idle"` and the `time_idle` observed at admission (the epoch anchor). Delivery is `"queue"`, so returning user input (steer) promotes first.
+- The idle item's payload carries `reason: "idle"`, the `time_idle` observed at admission (the epoch anchor), and the warming handoff clock when one admitted the item. Delivery is `"queue"`, so returning user input (steer) promotes first.
 - Dedup is per reason class: a pending idle item coalesces with another idle admission; a manual admission is never absorbed by an idle item. Under the Session's serialization, manual admission cancels a pending idle item and admits the manual steer.
-- At delivery of an idle item, the runner loads history and re-checks the firing laws plus epoch identity: the current `time_idle` must equal the payload's, and no user or synthetic input may have arrived since enqueue. This runs **before** `Compaction.Started` is published. A stale item is consumed with `InboxDelivered` alone — no started marker, no failed marker, no transcript message. This covers the returning-steer case, the stranded-after-restart case, and any law that changed while the item waited.
+- At delivery of an idle item, the runner loads history and re-checks the firing laws plus epoch identity: the current `time_idle` must equal the payload's, and no user or synthetic input may have arrived since enqueue. Warmth for a warming-configured Session is re-checked against the payload's handoff clock. This runs **before** `Compaction.Started` is published. A stale item is consumed with `InboxDelivered` alone — no started marker, no failed marker, no transcript message. This covers the returning-steer case, the stranded-after-restart case, and any law that changed while the item waited.
 - A usable held `precompute` summary is applied without a model call, waiting for an in-flight summary fiber as `usePrecomputed` does today.
 - Failure publishes `session.compaction.failed` with reason `"idle"` and is terminal for the epoch: law 6 counts failed compactions as well as completed ones, so even a fast provider failure that leaves the anchor warm cannot loop. There is no explicit retry. The user may see a failed marker they did not order; that is accepted as visibility of spent tokens.
 
@@ -71,11 +80,11 @@ The scheduler calls `admitCompaction` and `execution.wake` directly, not the `Se
 
 The change is not confined to a new module:
 
-- `CompactionPayload` (today an empty struct) gains `reason` and the epoch anchor; `Trigger` and `compact()` gain the idle reason, including the hardcoded `auto` in the started event and the non-manual reason mapping.
-- Runner control-item delivery hardcodes `reason: "manual"`; idle delivery re-checks laws before publishing `Compaction.Started`.
+- `CompactionPayload` gains `reason`, the epoch anchor (`idle`), and the warming handoff clock (`handoff`); `Trigger` and `compact()` gain the idle reason, including the hardcoded `auto` in the started event and the non-manual reason mapping.
+- Runner control-item delivery hardcodes `reason: "manual"`; idle delivery re-checks laws (warmth against the handoff clock for warming Sessions) before publishing `Compaction.Started`.
 - Wire literals for compaction reasons in `schema/src/session-event.ts` and `schema/src/session-message.ts` gain `"idle"`.
-- Protocol gains `experimental.session.presence`; the SDK is regenerated (`bun run generate` from `packages/client`).
-- Core gains the presence registry, the scheduler, the flag, and `compaction.idle.min_tokens`.
+- Protocol gains `experimental.session.presence`; the SDK is regenerated (`bun run generate` from `packages/client`). The payload's `handoff` field rides the same regeneration.
+- Core gains the presence registry, the scheduler, the flag, and `compaction.idle.min_tokens`. The warming plugin gains the ephemeral `session.warming.handoff` event; the scheduler subscribes to it and keeps a process-local handoff clock map.
 - App and TUI report presence; marker labeling follows separately.
 
 ## Alternatives Considered
@@ -86,14 +95,27 @@ The change is not confined to a new module:
 - **Overloading `session.view`.** Rejected: a durable watermark for unread state; presence reports would spam the journal with derivable, ephemeral interest.
 - **Durable `Schedule` rows per idle Session.** Rejected: durable writes and leader election for a timer whose interest input is process-local and whose anchor is already durable. Re-arm from presence covers restart.
 - **Compact on return (cold).** Not included: it does the same full reprocess the return would pay, plus a summary, and loses context without the warm-cache saving. May be considered separately as an explicit user choice.
+- **Handoff through a shared service registry.** A warming-state service the scheduler and runner both read would avoid the payload field, but the warming plugin is Location-scoped and the scheduler is global; wiring the scheduler into the internal-plugin requirements (and the runner into the scheduler) adds graph edges for a fact that is immutable once admitted. Rejected: the ephemeral event carries the clock to the scheduler, and the payload carries it to delivery, where the epoch check already guarantees it cannot have moved. No new service dependency.
+- **Guessing the keep-alive clock from config.** The scheduler could compute the window end from `warming.duration` and the anchor, but the last ping can land up to one interval earlier (or stop on a cache miss), so a guessed clock could compact a cold cache. Rejected: the plugin reports the actual last-sent time.
 
 ## Consequences
 
 - At most one warm compaction per idle epoch per present Session; a user who never returns wastes one cached-prefix read plus a summary, bounded by the size floor.
 - Presence is interest, not attention: a TUI left open in tmux holds a lease indefinitely, so a large idle Session compacts while the user may simply be reading nearby output. The floor, once-per-epoch law, and release-off flag bound the cost; attention-aware presence is deferred.
 - A sleeping machine with a local server runs nothing; on wake the warmth law prevents a wasted cold compaction. The feature targets a live server with an absent client: remote servers, backgrounded PWAs, minimized desktop windows.
-- Presence is process-local; leases do not survive server restart and clients re-register on reconnect. Stranded idle items are consumed without compaction by the epoch and warmth checks.
-- Warming-configured and implicitly caching models are excluded; the behavior is flag-gated and off in releases until proven.
+- Presence is process-local; leases do not survive server restart and clients re-register on reconnect. Stranded idle items are consumed without compaction by the epoch and warmth checks. Handoff clocks are process-local too; after a restart a warming-configured Session falls back to warming until its next window ends.
+- Warming-configured Sessions compact through the handoff once their window ends; implicitly caching models without an explicit `cache.ttl` remain excluded. The behavior is flag-gated and off in releases until proven.
+
+## Cache TTL table
+
+The mechanism only fires for models with an explicit `cache.ttl` (`Provider.Settings.cache.ttl`, set per provider/model through config). Conservative values for the observed pool, chosen at the short end of the logged range so the fire moment stays inside the warm window:
+
+| Provider / model | `cache.ttl` | Basis |
+| --- | --- | --- |
+| `opencode-go/deepseek-v4.1-flash` | `5m` | logged 5–10 min; short end |
+| `alibaba-token-plan/deepseek-v4-pro-0813` | `10m` | logged 10–20 min; short end |
+| `alibaba-token-plan/qwen4-max`, `qwen4-max-preview` | `5m` | catalog `capabilities.cache.explicit` short TTL |
+| `opencode-go/glm-5.3-flash` | `1h` | estimate; long-lived cache |
 
 ## Verification
 
@@ -108,18 +130,25 @@ Presence registry:
 
 Scheduler:
 
-- arms on an execution terminal event; fires at `anchor + TTL − FIRE_MARGIN` under a controlled clock;
+- arms on an execution terminal event; fires at `cache clock + TTL − FIRE_MARGIN` under a controlled clock;
 - interruption with reason `shutdown` does not arm; a Session without a measured anchor does not arm;
-- new execution, last-lease loss, and `session.deleted` cancel the timer;
+- new execution, last-lease loss, and `session.deleted` cancel the timer and drop the handoff clock;
 - presence registration after restart re-arms from the durable anchor;
 - absent presence never fires; flag off arms nothing and admits nothing;
 - a one-hour `cache.ttl` fires inside the lease window; an unresolvable model arms nothing.
+
+Warming handoff:
+
+- the warming plugin hands off the last ping's clock when the window ends, and the request clock when the cache outlives the window; it does not hand off when warming is off;
+- a warming-configured Session arms nothing without a handoff; a handoff fires on the keep-alive clock and carries it in the payload;
+- a handoff clock already past `TTL − WARM_MARGIN` arms nothing;
+- delivery compacts a warming Session whose payload carries a warm handoff clock, and consumes one without a handoff without compacting.
 
 Firing laws:
 
 - a cold anchor skips, including an anchor exactly at the warm boundary;
 - below-floor context skips; a completed compaction this epoch skips;
-- subagent, missing explicit `cache.ttl`, native compaction, and warming-configured Sessions skip (warming both active and past its window);
+- subagent, missing explicit `cache.ttl`, and native compaction skip; a warming-configured Session skips without a handoff (both while warming is active and past its window);
 - staged revert, archived Session, pending input, and `compaction.auto` off skip before admission.
 
 Delivery and epoch:

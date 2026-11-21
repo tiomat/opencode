@@ -3,11 +3,23 @@ export * as WarmingPlugin from "./warming.js"
 import { define } from "@opencode/plugin/effect/plugin"
 import type { SessionHooks } from "@opencode/plugin/effect/session"
 import type { Provider } from "@opencode/schema/provider"
-import type { Session } from "@opencode/schema/session"
+import { Session } from "@opencode/schema/session"
 import { ConfigWarming } from "@opencode/schema/config/warming"
 import { Cause, Clock, Data, Deferred, Duration, Effect, FiberMap, Option, Schema, Stream } from "effect"
+import { Bus } from "../bus.js"
 import { Config } from "../config.js"
 import { resolveModel } from "./optimize.js"
+
+/**
+ * Warming hands a still-warm cache to idle compaction instead of letting it expire cold. `sent` is the epoch
+ * millis of the request or keep-alive ping that last wrote the cache; the scheduler fires at `sent + TTL − margin`.
+ * Ephemeral: process-local interest, never journaled. Published when the warming window ends, and when a cache
+ * outlives the window so no ping is needed (the just-sent request is then the cache clock).
+ */
+export const Handoff = Bus.ephemeral({
+  type: "session.warming.handoff",
+  schema: { sessionID: Session.ID, sent: Schema.Finite },
+})
 
 const decodeWarming = Schema.decodeUnknownOption(ConfigWarming.Warming)
 
@@ -40,6 +52,7 @@ export const Plugin = define({
   id: "opencode.warming",
   effect: Effect.fn(function* (ctx) {
     const config = yield* Config.Service
+    const bus = yield* Bus.Service
     // A model's or provider's `cache.warming` overrides the top-level `warming`.
     const decide = Effect.fn("WarmingPlugin.decide")(function* (event: SessionHooks["context"]) {
       // Warming must never fail the request it hooks, so an unreadable catalog falls back to the top-level setting.
@@ -96,7 +109,11 @@ export const Plugin = define({
       while (true) {
         const due = Math.min(sent + Duration.toMillis(settings.interval), expires)
         yield* Effect.sleep(Duration.millis(due - (yield* Clock.currentTimeMillis)))
-        if ((yield* Clock.currentTimeMillis) >= expires) return
+        if ((yield* Clock.currentTimeMillis) >= expires) {
+          // The window is over and no further ping will refresh the cache; hand its warm remainder to idle compaction.
+          yield* bus.publish(Handoff, { sessionID, sent })
+          return
+        }
         const request = running.get(sessionID)
         if (request) {
           // Ping as soon as the request ends, unless it outlasted the cache: then a ping would only write a new one,
@@ -163,6 +180,8 @@ export const Plugin = define({
           CacheOutlivesWindow: () =>
             Effect.gen(function* () {
               yield* stop
+              // No ping is needed, so the request that triggered this hook is the cache clock idle compaction aims at.
+              yield* bus.publish(Handoff, { sessionID: event.sessionID, sent: yield* Clock.currentTimeMillis })
               if (outlived.has(event.sessionID)) return
               outlived.add(event.sessionID)
               yield* Effect.logInfo("not warming: the prompt cache outlives the warming window", {

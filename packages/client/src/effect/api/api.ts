@@ -483,9 +483,6 @@ export interface SessionApi<E = never> {
 
   /** @deprecated Use `client.experimental.session.log`. Removed in the next minor. */
   readonly log: ExperimentalSessionLogOperation<E>
-
-  /** @deprecated Use `client.experimental.session.presence`. Removed in the next minor. */
-  readonly presence: ExperimentalSessionPresenceOperation<E>
 }
 
 export type ExperimentalSessionStatsInput = {
@@ -2982,15 +2979,6 @@ export type SessionLogOutput = ExperimentalSessionLogOutput
 
 /** @deprecated Use `ExperimentalSessionLogOperation`. Removed in the next minor. */
 export type SessionLogOperation<E = never> = ExperimentalSessionLogOperation<E>
-
-/** @deprecated Use `ExperimentalSessionPresenceInput`. Removed in the next minor. */
-export type SessionPresenceInput = ExperimentalSessionPresenceInput
-
-/** @deprecated Use `ExperimentalSessionPresenceOutput`. Removed in the next minor. */
-export type SessionPresenceOutput = ExperimentalSessionPresenceOutput
-
-/** @deprecated Use `ExperimentalSessionPresenceOperation`. Removed in the next minor. */
-export type SessionPresenceOperation<E = never> = ExperimentalSessionPresenceOperation<E>
 
 /** @deprecated Use `ExperimentalGenerateTextInput`. Removed in the next minor. */
 export type GenerateTextInput = ExperimentalGenerateTextInput

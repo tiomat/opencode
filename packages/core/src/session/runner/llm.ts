@@ -59,6 +59,7 @@ const layer = Layer.effect(
     const jobs = yield* Job.Service
     const title = yield* SessionTitle.Service
     const presence = yield* SessionPresence.Service
+    const flags = yield* Flag.Service
     const config = yield* Effect.serviceOption(Config.Service)
     const steps = yield* SessionStep.make
     const pty = yield* PersistentPty.Service
@@ -70,7 +71,7 @@ const layer = Layer.effect(
       item: Extract<SessionInbox.Promotion, { readonly type: "compaction" }>,
       loaded: SessionContext.Loaded,
     ) {
-      if (!(yield* Flag.enabled("idle_compaction"))) return false
+      if (!(yield* flags.enabled("idle_compaction"))) return false
       if (!(yield* presence.present(loaded.session.id))) return false
       const epoch = item.payload.idle
       if (
@@ -104,6 +105,7 @@ const layer = Layer.effect(
           settings: compaction.settings(),
           now: yield* Clock.currentTimeMillis,
           warming: Boolean(warming),
+          handoff: item.payload.handoff,
         }) !== undefined
       )
     })
@@ -519,6 +521,7 @@ export const node = makeLocationNode({
     SessionStore.node,
     SessionCompaction.node,
     SessionPresence.node,
+    Flag.node,
     Plugin.node,
     PluginHooks.node,
     Job.node,

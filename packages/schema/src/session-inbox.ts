@@ -37,6 +37,11 @@ export const CompactionPayload = Schema.Struct({
   reason: Schema.Literals(["manual", "idle"]).pipe(optional),
   /** The `time_idle` (epoch millis) observed when an idle item was admitted; delivery requires it unchanged. */
   idle: Schema.Number.pipe(optional),
+  /**
+   * The cache clock (epoch millis) of the last warming request or ping, for an idle item admitted through the
+   * warming handoff. Delivery re-checks warmth against it; the epoch check guarantees no newer real request moved it.
+   */
+  handoff: Schema.Number.pipe(optional),
 }).annotate({ identifier: "Session.Inbox.CompactionPayload" })
 
 export interface MovePayload extends Schema.Schema.Type<typeof MovePayload> {}

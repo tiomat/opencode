@@ -100,6 +100,7 @@ export type SessionInboxSyntheticPayload = { text: string; description?: string;
 export type SessionInboxCompactionPayload = {
   reason?: "manual" | "idle"
   idle?: number | "Infinity" | "-Infinity" | "NaN"
+  handoff?: number | "Infinity" | "-Infinity" | "NaN"
 }
 
 export type ShellID = string
@@ -171,7 +172,7 @@ export type InstructionHash = string
 
 export type SessionInboxSyntheticPayload1 = { text: string; description?: string; metadata?: { [x: string]: any } }
 
-export type SessionInboxCompactionPayload1 = { reason?: "manual" | "idle"; idle?: number }
+export type SessionInboxCompactionPayload1 = { reason?: "manual" | "idle"; idle?: number; handoff?: number }
 
 export type SessionMessageNative1 = { [x: string]: any }
 
@@ -5083,12 +5084,6 @@ export type SessionLogInput = ExperimentalSessionLogInput
 
 /** @deprecated Use `ExperimentalSessionLogOutput`. Removed in the next minor. */
 export type SessionLogOutput = ExperimentalSessionLogOutput
-
-/** @deprecated Use `ExperimentalSessionPresenceInput`. Removed in the next minor. */
-export type SessionPresenceInput = ExperimentalSessionPresenceInput
-
-/** @deprecated Use `ExperimentalSessionPresenceOutput`. Removed in the next minor. */
-export type SessionPresenceOutput = ExperimentalSessionPresenceOutput
 
 /** @deprecated Use `ExperimentalGenerateTextInput`. Removed in the next minor. */
 export type GenerateTextInput = ExperimentalGenerateTextInput
