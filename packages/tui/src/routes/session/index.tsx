@@ -1120,6 +1120,38 @@ export function Session(props: {
       },
     },
     {
+      title: "Archive session",
+      id: "session.archive",
+      group: "Session",
+      slash: {
+        name: "archive",
+      },
+      run: () => {
+        dialog.clear()
+        const running =
+          data.session.status(route.sessionID) === "running" ||
+          data.session.family(route.sessionID).some((id) => data.session.status(id) === "running")
+        if (running) {
+          toast.show({
+            message: "Cannot archive a running session. Interrupt it first.",
+            variant: "error",
+            duration: 5000,
+          })
+          return
+        }
+        void client.api.session
+          .update({ sessionID: route.sessionID, archived: true })
+          .then(() => (sessionTabs.enabled() ? sessionTabs.close(route.sessionID) : navigate({ type: "home" })))
+          .catch((error) =>
+            toast.show({
+              message: `Failed to archive session: ${errorMessage(error)}`,
+              variant: "error",
+              duration: 5000,
+            }),
+          )
+      },
+    },
+    {
       title: "Undo previous message",
       id: "session.undo",
       group: "Session",

@@ -40,6 +40,7 @@ export function DialogSessionList() {
   const shortcuts = Keymap.useShortcuts()
   const [search, setSearch] = createDebouncedSignal("", 150)
   const [toDelete, setToDelete] = createSignal<string>()
+  const [showArchived, setShowArchived] = createSignal(false)
   const [prefs, updatePrefs] = useStorage().store("session-list", {
     initial: { allProjects: config.tabs?.scope !== "cwd" },
   })
@@ -53,9 +54,10 @@ export function DialogSessionList() {
     () => ({
       query: search().trim(),
       allProjects: allProjects(),
+      showArchived: showArchived(),
       location: pickerLocation(),
     }),
-    async ({ query, allProjects, location }) => {
+    async ({ query, allProjects, showArchived, location }) => {
       try {
         if (!data.location.info(location)) await data.location.sync(location)
         const current = data.location.info(location)
@@ -73,13 +75,13 @@ export function DialogSessionList() {
           limit: 50,
           order: "desc",
           parentID: null,
-          archived: false,
+          archived: showArchived,
         })
-        return { query, allProjects, sessions: response.data, error: undefined }
+        return { query, allProjects, showArchived, sessions: response.data, error: undefined }
       } catch (error) {
         // A transient transport failure must degrade search, not crash the TUI
         // through the root ErrorBoundary when the errored resource is read.
-        return { query, allProjects, sessions: [] as SessionInfo[], error }
+        return { query, allProjects, showArchived, sessions: [] as SessionInfo[], error }
       }
     },
   )
@@ -92,7 +94,7 @@ export function DialogSessionList() {
       .list()
       .filter(
         (session) =>
-          session.time.archived === undefined &&
+          (showArchived() ? session.time.archived !== undefined : session.time.archived === undefined) &&
           (allProjects() ||
             (session.projectID === current?.project.id && session.location.directory === current.directory)),
       )
@@ -107,7 +109,8 @@ export function DialogSessionList() {
     if (query !== search().trim()) return searchResults.latest?.sessions ?? local
     if (searchResults.loading) return searchResults.latest?.sessions ?? []
     const result = searchResults()
-    if (result?.query !== query || result.allProjects !== allProjects() || result.error) return local
+    if (result?.query !== query || result.allProjects !== allProjects() || result.showArchived !== showArchived() || result.error)
+      return local
     return result.sessions
   })
   const searchState = createMemo(() => {
@@ -140,6 +143,9 @@ export function DialogSessionList() {
     const project = data.project.get(current.project.id)
     return projectName(project) ?? ""
   })
+  const isRunning = (sessionID: string) =>
+    data.session.status(sessionID) === "running" ||
+    data.session.family(sessionID).some((id) => data.session.status(id) === "running")
 
   const options = createMemo(() => {
     const today = new Date().toDateString()
@@ -188,7 +194,7 @@ export function DialogSessionList() {
       .filter((session) => !session.parentID && !pinnedSet.has(session.id))
       .map((session) => {
         const date = new Date(session.time.updated).toDateString()
-        return option(session, date === today ? "Today" : date)
+        return option(session, showArchived() ? "Archived" : date === today ? "Today" : date)
       })
 
     return [...pinned.map((sessionID) => option(sessionMap.get(sessionID)!, "Pinned")), ...remaining]
@@ -198,11 +204,11 @@ export function DialogSessionList() {
 
   return (
     <DialogSelect
-      title="Sessions"
+      title={showArchived() ? "Archived sessions" : "Sessions"}
       titleView={
         <box flexDirection="row">
           <text fg={theme.text.base} attributes={TextAttributes.BOLD}>
-            Sessions
+            {showArchived() ? "Archived sessions" : "Sessions"}
           </text>
           <Show when={!allProjects() && currentProjectName()}>
             <text fg={theme.text.muted}> for {currentProjectName()}</text>
@@ -231,6 +237,12 @@ export function DialogSessionList() {
               draft.allProjects = !draft.allProjects
             }).catch(() => {})
           },
+        },
+        {
+          bind: "ctrl+shift+a",
+          title: showArchived() ? "Hide archived sessions" : "Show archived sessions",
+          group: "Dialog",
+          run: () => setShowArchived((value) => !value),
         },
       ]}
       emptyView={
@@ -287,6 +299,37 @@ export function DialogSessionList() {
           },
         },
         {
+          command: "session.archive.toggle",
+          title: showArchived() ? "unarchive" : "archive",
+          onTrigger: (option: { value: string }) => {
+            const archived = !showArchived()
+            if (archived && isRunning(option.value)) {
+              toast.show({
+                message: "Cannot archive a running session. Interrupt it first.",
+                variant: "error",
+                duration: 5000,
+              })
+              return
+            }
+            void client.api.session
+              .update({ sessionID: option.value, archived })
+              .then(() => {
+                setSearchResults((result) =>
+                  result
+                    ? { ...result, sessions: result.sessions.filter((session) => session.id !== option.value) }
+                    : result,
+                )
+              })
+              .catch((error) => {
+                toast.show({
+                  message: `Failed to ${archived ? "archive" : "unarchive"} session: ${errorMessage(error)}`,
+                  variant: "error",
+                  duration: 5000,
+                })
+              })
+          },
+        },
+        {
           command: "session.rename",
           title: "rename",
           onTrigger: (option: { value: string; title: string }) =>
@@ -296,6 +339,7 @@ export function DialogSessionList() {
       footerHints={[
         ...(newDesigns() ? [] : quickSwitchFooterHints()),
         { title: allProjects() ? "current directory" : "all projects", label: "ctrl+a", side: "right" },
+        { title: showArchived() ? "hide archived" : "archived", label: "ctrl+shift+a", side: "right" },
       ]}
     />
   )
